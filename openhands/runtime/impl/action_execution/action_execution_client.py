@@ -413,28 +413,28 @@ class ActionExecutionClient(Runtime):
                 'debug',
                 f'Updating MCP server with {len(new_servers)} new stdio servers (total: {len(combined_servers)})',
             )
-            response = self._send_action_server_request(
-                'POST',
-                f'{self.action_execution_server_url}/update_mcp_server',
-                json=stdio_tools,
-                timeout=60,
-            )
-            result = response.json()
-            if response.status_code != 200:
-                self.log('warning', f'Failed to update MCP server: {response.text}')
-            else:
-                if result.get('router_error_log'):
-                    self.log(
-                        'warning',
-                        f'Some MCP servers failed to be added: {result["router_error_log"]}',
-                    )
+            # response = self._send_action_server_request(
+            #     'POST',
+            #     f'{self.action_execution_server_url}/update_mcp_server',
+            #     json=stdio_tools,
+            #     timeout=60,
+            # )
+            # result = response.json()
+            # if response.status_code != 200:
+            #     self.log('warning', f'Failed to update MCP server: {response.text}')
+            # else:
+            #     if result.get('router_error_log'):
+            #         self.log(
+            #             'warning',
+            #             f'Some MCP servers failed to be added: {result["router_error_log"]}',
+            #         )
 
-                # Update our cached list with combined servers after successful update
-                self._last_updated_mcp_stdio_servers = combined_servers.copy()
-                self.log(
-                    'debug',
-                    f'Successfully updated MCP stdio servers, now tracking {len(combined_servers)} servers',
-                )
+            #     # Update our cached list with combined servers after successful update
+            #     self._last_updated_mcp_stdio_servers = combined_servers.copy()
+            #     self.log(
+            #         'debug',
+            #         f'Successfully updated MCP stdio servers, now tracking {len(combined_servers)} servers',
+            #     )
             self.log(
                 'info',
                 f'Updated MCP config: {updated_mcp_config.sse_servers}',

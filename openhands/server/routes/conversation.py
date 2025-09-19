@@ -54,22 +54,25 @@ async def get_vscode_url(
     Returns:
         JSONResponse: A JSON response indicating the success of the operation.
     """
-    try:
-        runtime: Runtime = conversation.runtime
-        logger.debug(f'Runtime type: {type(runtime)}')
-        logger.debug(f'Runtime VSCode URL: {runtime.vscode_url}')
-        return JSONResponse(
-            status_code=status.HTTP_200_OK, content={'vscode_url': runtime.vscode_url}
+    return JSONResponse(
+            status_code=status.HTTP_200_OK, content={'vscode_url': ''}
         )
-    except Exception as e:
-        logger.error(f'Error getting VSCode URL: {e}')
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                'vscode_url': None,
-                'error': f'Error getting VSCode URL: {e}',
-            },
-        )
+    # try:
+    #     runtime: Runtime = conversation.runtime
+    #     logger.debug(f'Runtime type: {type(runtime)}')
+    #     logger.debug(f'Runtime VSCode URL: {runtime.vscode_url}')
+    #     return JSONResponse(
+    #         status_code=status.HTTP_200_OK, content={'vscode_url': runtime.vscode_url}
+    #     )
+    # except Exception as e:
+    #     logger.error(f'Error getting VSCode URL: {e}')
+    #     return JSONResponse(
+    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    #         content={
+    #             'vscode_url': None,
+    #             'error': f'Error getting VSCode URL: {e}',
+    #         },
+    #     )
 
 
 @app.get('/web-hosts')
