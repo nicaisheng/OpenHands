@@ -316,6 +316,9 @@ class ActionExecutionClient(Runtime):
                 execution_action_body: dict[str, Any] = {
                     'action': event_to_dict(action),
                 }
+                import json
+                json_string = json.dumps(execution_action_body, ensure_ascii=False, indent=4)
+                self.log('info', f'Sending execute_action request: {json_string}')
                 response = self._send_action_server_request(
                     'POST',
                     f'{self.action_execution_server_url}/execute_action',
@@ -325,6 +328,7 @@ class ActionExecutionClient(Runtime):
                 )
                 assert response.is_closed
                 output = response.json()
+                self.log('info', f'Sending execute_action response: {output}')
                 if getattr(action, 'hidden', False):
                     output.get('extras')['hidden'] = True
                 obs = observation_from_dict(output)
