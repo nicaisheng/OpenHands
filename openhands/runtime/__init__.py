@@ -2,6 +2,7 @@ import importlib
 
 from openhands.runtime.base import Runtime
 from openhands.runtime.impl.cli.cli_runtime import CLIRuntime
+from openhands.runtime.impl.cowizard.cowizard_runtime import CowizardRuntime
 from openhands.runtime.impl.docker.docker_runtime import (
     DockerRuntime,
 )
@@ -18,6 +19,7 @@ _DEFAULT_RUNTIME_CLASSES: dict[str, type[Runtime]] = {
     'local': LocalRuntime,
     'kubernetes': KubernetesRuntime,
     'cli': CLIRuntime,
+    'cowizard': CowizardRuntime
 }
 
 # Try to import third-party runtimes if available

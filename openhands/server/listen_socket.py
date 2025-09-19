@@ -142,6 +142,9 @@ async def connect(connection_id: str, environ: dict) -> None:
 
 @sio.event
 async def oh_user_action(connection_id: str, data: dict[str, Any]) -> None:
+    import json
+    json_string = json.dumps(data, ensure_ascii=False, indent=4)
+    logger.debug(f'oh_user_action: {json_string}, connection_id: {connection_id}')
     await conversation_manager.send_to_event_stream(connection_id, data)
 
 
