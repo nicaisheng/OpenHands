@@ -975,10 +975,6 @@ if __name__ == '__main__':
             return {'status': 'not initialized'}
         return {'status': 'ok'}
 
-    # ================================
-    # VSCode-specific operations
-    # ================================
-
     @app.get('/vscode/connection_token')
     async def get_vscode_connection_token():
         assert client is not None
@@ -987,10 +983,6 @@ if __name__ == '__main__':
             return {'token': plugin.vscode_connection_token}
         else:
             return {'token': None}
-
-    # ================================
-    # File-specific operations for UI
-    # ================================
 
     @app.post('/list_files')
     async def list_files(request: Request):
