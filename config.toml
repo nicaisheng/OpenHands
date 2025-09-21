@@ -57,7 +57,7 @@
 
 # Path to mount the workspace in the sandbox
 #workspace_mount_path_in_sandbox = "/workspace"
-workspace_mount_path_in_sandbox = "/Users/nicaisheng/Documents/temu_idea/java-test"
+workspace_mount_path_in_sandbox = "/Users/nicaisheng/Documents/myproject/gotest"
 
 # Path to mount the workspace
 #workspace_mount_path = ""
@@ -285,7 +285,7 @@ llm_config = 'gpt3'
 [agent.CustomAgent]
 # Example: use a custom agent from a different package
 # This will be automatically be registered as a new agent named "CustomAgent"
-classpath = "my_package.my_module.MyCustomAgent"
+# classpath = "my_package.my_module.MyCustomAgent"
 
 #################################### Sandbox ###################################
 # Configuration for the sandbox
