@@ -1,0 +1,52 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "OpenHands CLI",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "openhands.cli.main",
+            "justMyCode": false
+        },
+        {
+            "name": "OpenHands WebApp",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "openhands.server.listen:app",
+                "--reload",
+                "--reload-exclude",
+                "workspace/*",
+                "--port",
+                "3000"
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "OpenHands Action Execution Server",
+            "type":"debugpy",
+            "request":"launch",
+            "program":"openhands/runtime/action_execution_server.py",
+            "args":[
+                "8000",
+                "--working-dir",
+                "${workspaceFolder}/workspace",
+                "--username",
+                "nicaisheng",
+                "--user-id",
+                "1000",
+                "--no-enable-browser",
+                "--plugins",
+                "agent_skills",
+                // "jupyter"
+                // "vscode"
+            ],
+            "console":"integratedTerminal",
+            "justMyCode":false,
+            "env":{
+                "PYTHONPATH":"${workspaceFolder}"
+            }
+        }
+    ]
+}
