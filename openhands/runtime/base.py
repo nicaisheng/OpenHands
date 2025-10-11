@@ -1233,3 +1233,6 @@ fi
     @classmethod
     def teardown(cls, config: OpenHandsConfig):
         """Tear down the environment in which runtimes are created."""
+
+    def start_websocket_server(self) -> None:
+        pass
