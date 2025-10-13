@@ -57,7 +57,7 @@
 
 # Path to mount the workspace in the sandbox
 #workspace_mount_path_in_sandbox = "/workspace"
-workspace_mount_path_in_sandbox = "/Users/nicaisheng/Documents/myproject/gotest"
+workspace_mount_path_in_sandbox = "/Users/nicaisheng/Documents/temu_idea/scan-code-service"
 
 # Path to mount the workspace
 #workspace_mount_path = ""
