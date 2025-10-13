@@ -21,7 +21,7 @@ from openhands.events.observation import (
 from openhands.events.serialization import event_to_dict, observation_from_dict
 from openhands.integrations.provider import PROVIDER_TOKEN_TYPE
 from openhands.llm.llm_registry import LLMRegistry
-from openhands.runtime.impl.action_execution.action_execution_client import (
+from openhands.runtime.impl.action_execution.action_execution_client_ws import (
     ActionExecutionClient,
 )
 from openhands.runtime.plugins import PluginRequirement
