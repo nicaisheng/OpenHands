@@ -114,6 +114,10 @@ class CowizardRuntime(ActionExecutionClient):
         """Start the action_execution_server on the local machine or connect to an existing one."""
         self.set_runtime_status(RuntimeStatus.STARTING_RUNTIME)
 
+        # Start the shared WebSocket server (only starts once for all instances)
+        ActionExecutionClient.start_websocket_server()
+        self.log('info', 'WebSocket server initialized')
+
         # API URL for the server
         api_url = f'{self.config.sandbox.local_runtime_url}:{self._execution_server_port}'
         self.api_url = api_url

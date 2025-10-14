@@ -204,6 +204,9 @@ class ActionExecutor:
         self.websocket: websockets.WebSocketClientProtocol | None = None
         self.websocket_task: asyncio.Task | None = None
 
+        # conversation_id will be assigned by the Client during registration
+        self.conversation_id: str | None = None
+
         if (not self.enable_browser) and self.browsergym_eval_env:
             raise BrowserUnavailableException(
                 'Browser environment is not enabled in config, but browsergym_eval_env is set'
@@ -349,7 +352,23 @@ class ActionExecutor:
                 logger.info(f'Connecting to ActionExecutionClient at {self.websocket_url}...')
                 async with websockets.connect(self.websocket_url) as websocket:
                     self.websocket = websocket
-                    logger.info('Connected to ActionExecutionClient via WebSocket')
+
+                    # Send registration message (Client will assign conversation_id)
+                    register_message = {'type': 'register'}
+                    await websocket.send(json.dumps(register_message))
+                    logger.info('Sent registration message, waiting for conversation_id assignment...')
+
+                    # Wait for registration acknowledgment
+                    ack_message = await websocket.recv()
+                    ack_data = json.loads(ack_message)
+
+                    if ack_data.get('type') != 'registered':
+                        logger.error(f'Unexpected registration response: {ack_data}')
+                        continue
+
+                    # Get the conversation_id assigned by the Client
+                    self.conversation_id = ack_data.get('conversation_id')
+                    logger.info(f'[conversation:{self.conversation_id}] Successfully registered with ActionExecutionClient')
                     retry_count = 0  # Reset retry count on successful connection
 
                     # Listen for incoming messages
@@ -362,7 +381,7 @@ class ActionExecutor:
                                 request_id = data.get('request_id')
                                 action_data = data.get('data')
 
-                                logger.info(f'Received action request {request_id}')
+                                logger.info(f'[conversation:{self.conversation_id}] Received action request {request_id}')
 
                                 # Execute the action
                                 action = event_from_dict(action_data)
@@ -375,10 +394,10 @@ class ActionExecutor:
                                     'data': event_to_dict(observation)
                                 }
                                 await websocket.send(json.dumps(response))
-                                logger.info(f'Sent response for request {request_id}')
+                                logger.info(f'[conversation:{self.conversation_id}] Sent response for request {request_id}')
 
                         except Exception as e:
-                            logger.error(f'Error processing WebSocket message: {e}', exc_info=True)
+                            logger.error(f'[conversation:{self.conversation_id}] Error processing WebSocket message: {e}', exc_info=True)
 
             except (websockets.exceptions.ConnectionClosed,
                     websockets.exceptions.WebSocketException,
@@ -386,17 +405,19 @@ class ActionExecutor:
                     OSError) as e:
                 self.websocket = None
                 retry_count += 1
+                conv_id = self.conversation_id or 'unassigned'
                 logger.warning(
-                    f'WebSocket connection failed (attempt {retry_count}/{max_retries}): {e}'
+                    f'[conversation:{conv_id}] WebSocket connection failed (attempt {retry_count}/{max_retries}): {e}'
                 )
                 if retry_count < max_retries:
                     await asyncio.sleep(retry_delay)
                 else:
-                    logger.error('Max WebSocket connection retries reached')
+                    logger.error(f'[conversation:{conv_id}] Max WebSocket connection retries reached')
                     break
             except Exception as e:
                 self.websocket = None
-                logger.error(f'Unexpected error in WebSocket client: {e}', exc_info=True)
+                conv_id = self.conversation_id or 'unassigned'
+                logger.error(f'[conversation:{conv_id}] Unexpected error in WebSocket client: {e}', exc_info=True)
                 break
 
     async def _init_plugin(self, plugin: Plugin):
@@ -786,7 +807,7 @@ if __name__ == '__main__':
             browsergym_eval_env=args.browsergym_eval_env,
         )
         await client.ainit()
-        logger.info('ActionExecutor initialized.')
+        logger.info('ActionExecutor initialized, waiting for conversation_id assignment from Client...')
 
         # Check if we're on Windows
         is_windows = sys.platform == 'win32'
