@@ -362,8 +362,6 @@ class AgentSession:
                 git_provider_tokens=git_provider_tokens,
             )
 
-            self.runtime.start_websocket_server()
-
         try:
             await self.runtime.connect()
         except AgentRuntimeUnavailableError as e:

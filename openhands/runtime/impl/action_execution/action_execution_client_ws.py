@@ -67,7 +67,23 @@ class ActionExecutionClient(Runtime):
 
     This class now acts as a WebSocket server listening on 0.0.0.0:3001,
     and ActionExecutionServer connects to it as a WebSocket client.
+
+    All instances of this class share a single WebSocket server and event loop
+    for efficiency and resource management.
     """
+
+    # Class-level shared components (shared by ALL instances)
+    _class_websocket_app: FastAPI | None = None
+    _class_websocket_server_thread: threading.Thread | None = None
+    _class_websocket_port: int = 3001
+    _class_websocket_lock = threading.Lock()
+    _class_shared_loop: asyncio.AbstractEventLoop | None = None
+    _class_loop_thread: threading.Thread | None = None
+    _class_server_started: bool = False
+    _class_instance_count: int = 0  # Track number of active instances
+
+    # Registry to map conversation_id to runtime instance (for WebSocket endpoint to find the right instance)
+    _class_runtime_registry: dict[str, 'ActionExecutionClient'] = {}
 
     def __init__(
         self,
@@ -89,13 +105,16 @@ class ActionExecutionClient(Runtime):
         self._vscode_token: str | None = None  # initial dummy value
         self._last_updated_mcp_stdio_servers: list[MCPStdioServerConfig] = []
 
-        # WebSocket server components
-        self._websocket_app: FastAPI | None = None
-        self._websocket_server_thread: threading.Thread | None = None
+        # Instance-level WebSocket connection and pending responses
         self._websocket_connection: WebSocket | None = None
-        self._websocket_port: int = 3001
-        self._websocket_lock = threading.Lock()
         self._pending_responses: dict[str, asyncio.Future] = {}
+        self._connection_ready = threading.Event()  # Signal when WebSocket is connected
+
+        self._log_level = 'info'
+
+        # Register this instance and increment count
+        with ActionExecutionClient._class_websocket_lock:
+            ActionExecutionClient._class_instance_count += 1
 
         super().__init__(
             config,
@@ -111,22 +130,138 @@ class ActionExecutionClient(Runtime):
             git_provider_tokens,
         )
 
+        # Register in the runtime registry after sid is set
+        with ActionExecutionClient._class_websocket_lock:
+            ActionExecutionClient._class_runtime_registry[self.sid] = self
+
     @property
     def action_execution_server_url(self) -> str:
         raise NotImplementedError('Action execution server URL is not implemented')
 
-    def start_websocket_server(self) -> None:
-        """Start the WebSocket server in a separate thread."""
-        def run_server():
-            self._websocket_app = FastAPI()
+    @classmethod
+    def _start_shared_event_loop(cls) -> None:
+        """Start a shared event loop in a separate thread for performance optimization.
 
-            @self._websocket_app.websocket("/ws")
+        This is a class method that starts a single event loop shared by all instances.
+        """
+        import threading as thread_module
+
+        # Check if already started (thread-safe)
+        if cls._class_shared_loop is not None and cls._class_shared_loop.is_running():
+            print(f'[ActionExecutionClient] Event loop already running (thread {thread_module.current_thread().name})')
+            return  # Already running
+
+        # Double-check with lock to prevent race condition
+        with cls._class_websocket_lock:
+            if cls._class_shared_loop is not None and cls._class_shared_loop.is_running():
+                print(f'[ActionExecutionClient] Event loop already running after lock check (thread {thread_module.current_thread().name})')
+                return  # Already running
+
+            print(f'[ActionExecutionClient] Starting shared event loop (thread {thread_module.current_thread().name})')
+
+            def run_loop():
+                cls._class_shared_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(cls._class_shared_loop)
+                print('[ActionExecutionClient] Shared event loop thread started')
+                cls._class_shared_loop.run_forever()
+
+            cls._class_loop_thread = thread_module.Thread(target=run_loop, daemon=True, name='SharedEventLoop')
+            cls._class_loop_thread.start()
+
+        # Wait for loop to be ready (outside the lock)
+        import time
+        max_wait = 5
+        waited = 0
+        while cls._class_shared_loop is None and waited < max_wait:
+            time.sleep(0.01)
+            waited += 0.01
+
+        if cls._class_shared_loop is None:
+            raise RuntimeError('Failed to start shared event loop')
+
+        print('[ActionExecutionClient] Shared event loop ready')
+
+    @classmethod
+    def start_websocket_server(cls) -> None:
+        """Start the WebSocket server in a separate thread.
+
+        This is a class method that starts a single server shared by all instances.
+        It's safe to call multiple times - it will only start once.
+        """
+        import threading as thread_module
+
+        # Fast path: check without lock first
+        if cls._class_server_started:
+            print(f'[ActionExecutionClient] WebSocket server already started (fast path, thread {thread_module.current_thread().name})')
+            return  # Server already started
+
+        # Slow path: acquire lock and check again (double-check locking)
+        with cls._class_websocket_lock:
+            if cls._class_server_started:
+                print(f'[ActionExecutionClient] WebSocket server already started (slow path, thread {thread_module.current_thread().name})')
+                return  # Server already started (another thread might have started it)
+
+            print(f'[ActionExecutionClient] Starting WebSocket server (thread {thread_module.current_thread().name})')
+            # Mark as started before actually starting to prevent other threads from proceeding
+            cls._class_server_started = True
+
+        # Start shared event loop first (outside the lock to avoid holding it too long)
+        cls._start_shared_event_loop()
+
+        def run_server():
+            cls._class_websocket_app = FastAPI()
+
+            @cls._class_websocket_app.websocket("/ws")
             async def websocket_endpoint(websocket: WebSocket):
                 await websocket.accept()
-                self.log('info', 'ActionExecutionServer connected via WebSocket')
 
-                with self._websocket_lock:
-                    self._websocket_connection = websocket
+                # Wait for the first message to get conversation_id
+                runtime_instance = None
+                conversation_id = None
+
+                try:
+                    init_data = await websocket.receive_text()
+                    init_message = json.loads(init_data)
+
+                    if init_message.get('type') != 'register':
+                        await websocket.close(code=1003, reason="First message must be registration")
+                        return
+
+                    conversation_id = init_message.get('conversation_id')
+
+                    # Find the runtime instance for this conversation
+                    with cls._class_websocket_lock:
+                        # If no conversation_id provided, try to use the first waiting runtime
+                        if not conversation_id:
+                            # Find first runtime without a connection
+                            for sid, runtime in cls._class_runtime_registry.items():
+                                if runtime._websocket_connection is None:
+                                    conversation_id = sid
+                                    runtime_instance = runtime
+                                    break
+
+                            if not conversation_id:
+                                await websocket.close(code=1003, reason="No conversation_id provided and no waiting runtimes available")
+                                return
+                        else:
+                            runtime_instance = cls._class_runtime_registry.get(conversation_id)
+                            if not runtime_instance:
+                                await websocket.close(code=1003, reason=f"No runtime found for conversation {conversation_id}")
+                                return
+
+                        # Set the WebSocket connection on the runtime instance
+                        runtime_instance._websocket_connection = websocket
+                        runtime_instance._connection_ready.set()
+
+                    print(f'[ActionExecutionClient] Conversation [{conversation_id}] connected via WebSocket. Total registered: {len(cls._class_runtime_registry)}')
+
+                    # Send acknowledgment with the actual conversation_id
+                    await websocket.send_text(json.dumps({'type': 'registered', 'conversation_id': conversation_id}))
+
+                except Exception as e:
+                    print(f'[ActionExecutionClient] Error during conversation registration: {e}')
+                    await websocket.close(code=1011, reason=str(e))
+                    return
 
                 try:
                     while True:
@@ -137,44 +272,74 @@ class ActionExecutionClient(Runtime):
                         # Handle response messages
                         if message.get('type') == 'response':
                             request_id = message.get('request_id')
-                            if request_id in self._pending_responses:
-                                future = self._pending_responses.pop(request_id)
+                            if runtime_instance and request_id in runtime_instance._pending_responses:
+                                future = runtime_instance._pending_responses.pop(request_id)
                                 if not future.done():
-                                    future.set_result(message.get('data'))
+                                    # Set result in the future's event loop (shared loop)
+                                    # This is critical: we're in uvicorn's event loop but the future
+                                    # belongs to the shared loop, so we must use call_soon_threadsafe
+                                    cls._class_shared_loop.call_soon_threadsafe(
+                                        future.set_result, message.get('data')
+                                    )
 
                 except WebSocketDisconnect:
-                    self.log('warning', 'ActionExecutionServer disconnected from WebSocket')
-                    with self._websocket_lock:
-                        self._websocket_connection = None
+                    print(f'[ActionExecutionClient] Conversation [{conversation_id}] disconnected from WebSocket')
+                    if runtime_instance:
+                        runtime_instance._websocket_connection = None
+                        runtime_instance._connection_ready.clear()
                 except Exception as e:
-                    self.log('error', f'WebSocket error: {e}')
-                    with self._websocket_lock:
-                        self._websocket_connection = None
+                    print(f'[ActionExecutionClient] WebSocket error for conversation [{conversation_id}]: {e}')
+                    if runtime_instance:
+                        runtime_instance._websocket_connection = None
+                        runtime_instance._connection_ready.clear()
 
             # Run the FastAPI app with uvicorn
             config = uvicorn.Config(
-                self._websocket_app,
+                cls._class_websocket_app,
                 host="0.0.0.0",
-                port=self._websocket_port,
+                port=cls._class_websocket_port,
                 log_level="info"
             )
             server = uvicorn.Server(config)
             asyncio.run(server.serve())
 
-        self._websocket_server_thread = threading.Thread(target=run_server, daemon=True)
-        self._websocket_server_thread.start()
-        self.log('info', f'WebSocket server started on 0.0.0.0:{self._websocket_port}')
+        cls._class_websocket_server_thread = threading.Thread(target=run_server, daemon=True)
+        cls._class_websocket_server_thread.start()
+        print(f'[ActionExecutionClient] WebSocket server started on 0.0.0.0:{cls._class_websocket_port}')
+
+    def is_connected(self) -> bool:
+        """Check if this runtime's WebSocket is connected."""
+        return self._websocket_connection is not None
+
+    def wait_for_connection(self, timeout: float = 30.0) -> bool:
+        """Wait for WebSocket connection to be established.
+
+        Args:
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            True if connected, False if timeout
+        """
+        return self._connection_ready.wait(timeout=timeout)
 
     async def _send_action_via_websocket(self, action: Action) -> Observation:
-        """Send an action to the ActionExecutionServer via WebSocket."""
+        """Send an action to the ActionExecutionServer via WebSocket.
+
+        Args:
+            action: The action to send
+
+        Returns:
+            Observation from the action execution
+        """
         import uuid
 
+        # Check if WebSocket is connected
         if self._websocket_connection is None:
-            raise RuntimeError('WebSocket connection not established')
+            raise RuntimeError(f'WebSocket not connected for runtime {self.sid}')
 
         request_id = str(uuid.uuid4())
 
-        # Create a future for the response
+        # Create a future for the response in the shared event loop
         loop = asyncio.get_event_loop()
         future = loop.create_future()
         self._pending_responses[request_id] = future
@@ -188,6 +353,7 @@ class ActionExecutionClient(Runtime):
 
         try:
             await self._websocket_connection.send_text(json.dumps(message))
+            self.log('debug', f'Sent action via WebSocket, request_id: {request_id}')
 
             # Wait for the response with timeout
             timeout = getattr(action, 'timeout', None) or self.config.sandbox.timeout
@@ -418,17 +584,32 @@ class ActionExecutionClient(Runtime):
             assert action.timeout is not None
 
             try:
-                json_string = json.dumps(event_to_dict(action), ensure_ascii=False, indent=4)
-                self.log('info', f'Sending action via WebSocket: {json_string}')
+                # Optimize: Only format JSON for logging when needed, without indentation
+                if self._log_level == 'debug':
+                    json_string = json.dumps(event_to_dict(action), ensure_ascii=False)
+                    self.log('debug', f'Sending action via WebSocket: {json_string}')
+                else:
+                    self.log('info', f'Sending action via WebSocket: {action.action}')
 
-                # Use asyncio to run the WebSocket send operation
-                loop = asyncio.new_event_loop()
-                try:
-                    obs = loop.run_until_complete(self._send_action_via_websocket(action))
-                finally:
-                    loop.close()
+                # Use shared event loop for better performance
+                if ActionExecutionClient._class_shared_loop is None:
+                    raise RuntimeError('Shared event loop not initialized. Call start_websocket_server() first.')
 
-                self.log('info', f'Received observation from WebSocket: {event_to_dict(obs)}')
+                # Submit coroutine to shared loop and wait for result
+                future = asyncio.run_coroutine_threadsafe(
+                    self._send_action_via_websocket(action),
+                    ActionExecutionClient._class_shared_loop
+                )
+
+                # Wait for result with timeout
+                timeout = action.timeout + 5
+                obs = future.result(timeout=timeout)
+
+                if self._log_level == 'debug':
+                    self.log('debug', f'Received observation from WebSocket: {event_to_dict(obs)}')
+                else:
+                    self.log('info', f'Received observation from WebSocket: {type(obs).__name__}')
+
                 if getattr(action, 'hidden', False):
                     obs.extras['hidden'] = True  # type: ignore[attr-defined]
                 return obs
@@ -588,15 +769,40 @@ class ActionExecutionClient(Runtime):
             return
         self._runtime_closed = True
 
-        # Close WebSocket connection
+        # Close this instance's WebSocket connection
         if self._websocket_connection is not None:
             try:
                 asyncio.run(self._websocket_connection.close())
+                self.log('info', f'Closed WebSocket connection for runtime {self.sid}')
             except Exception as e:
                 self.log('warning', f'Error closing WebSocket connection: {e}')
             self._websocket_connection = None
+            self._connection_ready.clear()
 
-        # Note: We can't easily stop the uvicorn server thread,
-        # but it's marked as daemon so it will be cleaned up on process exit
+        # Unregister from runtime registry and decrement instance count
+        should_close_server = False
+        with ActionExecutionClient._class_websocket_lock:
+            ActionExecutionClient._class_runtime_registry.pop(self.sid, None)
+            ActionExecutionClient._class_instance_count -= 1
+            # Only close server if this is the last instance
+            if ActionExecutionClient._class_instance_count <= 0:
+                should_close_server = True
+
+        if should_close_server:
+            self.log('info', 'Last runtime instance closing - shutting down shared WebSocket server')
+
+            # Stop shared event loop
+            if ActionExecutionClient._class_shared_loop is not None and ActionExecutionClient._class_shared_loop.is_running():
+                ActionExecutionClient._class_shared_loop.call_soon_threadsafe(ActionExecutionClient._class_shared_loop.stop)
+                self.log('debug', 'Stopped shared event loop')
+
+            # Reset server state
+            with ActionExecutionClient._class_websocket_lock:
+                ActionExecutionClient._class_server_started = False
+
+            # Note: We can't easily stop the uvicorn server thread,
+            # but it's marked as daemon so it will be cleaned up on process exit
+        else:
+            self.log('info', f'Runtime instance closing - {ActionExecutionClient._class_instance_count} instances remain')
 
         self.session.close()
