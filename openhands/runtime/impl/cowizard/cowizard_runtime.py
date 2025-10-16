@@ -64,7 +64,7 @@ class CowizardRuntime(ActionExecutionClient):
 
         # Initialize these values to be set in connect()
         self._temp_workspace: str | None = None
-        self._execution_server_port = 8000
+        self._execution_server_port = 8088
         self._vscode_port = -1
         self._app_ports: list[int] = []
 
