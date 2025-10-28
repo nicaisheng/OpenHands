@@ -31,7 +31,7 @@
             "args":[
                 "8000",
                 "--working-dir",
-                "${workspaceFolder}/workspace",
+                "/Users/nicaisheng/Documents/temu_idea/scan-code-service",
                 "--username",
                 "nicaisheng",
                 "--user-id",
