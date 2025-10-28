@@ -21,7 +21,7 @@ from openhands.events.observation import (
 from openhands.events.serialization import event_to_dict, observation_from_dict
 from openhands.integrations.provider import PROVIDER_TOKEN_TYPE
 from openhands.llm.llm_registry import LLMRegistry
-from openhands.runtime.impl.action_execution.action_execution_client_ws import (
+from openhands.runtime.impl.action_execution.action_execution_client import (
     ActionExecutionClient,
 )
 from openhands.runtime.plugins import PluginRequirement
@@ -64,7 +64,7 @@ class CowizardRuntime(ActionExecutionClient):
 
         # Initialize these values to be set in connect()
         self._temp_workspace: str | None = None
-        self._execution_server_port = 8088
+        self._execution_server_port = 8000
         self._vscode_port = -1
         self._app_ports: list[int] = []
 
@@ -115,8 +115,8 @@ class CowizardRuntime(ActionExecutionClient):
         self.set_runtime_status(RuntimeStatus.STARTING_RUNTIME)
 
         # Start the shared WebSocket server (only starts once for all instances)
-        ActionExecutionClient.start_websocket_server()
-        self.log('info', 'WebSocket server initialized')
+        # ActionExecutionClient.start_websocket_server()
+        # self.log('info', 'WebSocket server initialized')
 
         # API URL for the server
         api_url = f'{self.config.sandbox.local_runtime_url}:{self._execution_server_port}'

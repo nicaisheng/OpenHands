@@ -679,3 +679,20 @@ class BashSession:
             logger.debug(f'SLEEPING for {self.POLL_INTERVAL} seconds for next poll')
             time.sleep(self.POLL_INTERVAL)
         raise RuntimeError('Bash session was likely interrupted...')
+
+
+if __name__ == '__main__':
+    # Example usage
+    input_commands = "ls -la; pwd\necho 'mixed' && cat file.txt"
+    result = split_bash_commands(input_commands)
+    print(f'Result: {result}, size: {len(result)}')
+
+    input_commands = "if [ -f file.txt ]; then cat file.txt; fi"
+    result = split_bash_commands(input_commands)
+    print(f'Result: {result}, size: {len(result)}')
+
+    input_commands = "myfunc() { echo 'hello'; }\necho 'after function'"
+    result = split_bash_commands(input_commands)
+    print(f'Result: {result}, size: {len(result)}')
+
+
