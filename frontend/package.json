@@ -77,7 +77,9 @@
     "lint:fix": "eslint src --ext .ts,.tsx,.js --fix && prettier --write src/**/*.{ts,tsx}",
     "prepare": "cd .. && husky frontend/.husky",
     "typecheck": "react-router typegen && tsc",
-    "check-translation-completeness": "node scripts/check-translation-completeness.cjs"
+    "check-translation-completeness": "node scripts/check-translation-completeness.cjs",
+    "clean": "rm -rf build",
+    "clean:all": "rm -rf build node_modules"
   },
   "lint-staged": {
     "src/**/*.{ts,tsx,js}": [
