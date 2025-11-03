@@ -161,7 +161,7 @@ def config_from_env() -> AppServerConfig:
                 api_key=os.environ['SANDBOX_API_KEY'],
                 api_url=os.environ['SANDBOX_REMOTE_RUNTIME_API_URL'],
             )
-        elif os.getenv('RUNTIME') in ('local', 'process'):
+        elif os.getenv('RUNTIME') in ('local', 'process', 'cowizard'):
             config.sandbox = ProcessSandboxServiceInjector()
         else:
             config.sandbox = DockerSandboxServiceInjector()
@@ -169,7 +169,7 @@ def config_from_env() -> AppServerConfig:
     if config.sandbox_spec is None:
         if os.getenv('RUNTIME') == 'remote':
             config.sandbox_spec = RemoteSandboxSpecServiceInjector()
-        elif os.getenv('RUNTIME') in ('local', 'process'):
+        elif os.getenv('RUNTIME') in ('local', 'process', 'cowizard'):
             config.sandbox_spec = ProcessSandboxSpecServiceInjector()
         else:
             config.sandbox_spec = DockerSandboxSpecServiceInjector()
